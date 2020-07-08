@@ -1,0 +1,6 @@
+*.pyc
+__pycache__/
+*.db*
+*.egg*
+*.log
+discord-monopoly.json
