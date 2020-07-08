@@ -49,7 +49,6 @@ class Monopoly(commands.Cog):
                 color=0xff0000
             )))
             return
-        self.seeking[ctx.author.id] = ctx.message
         desc = f'{seeker} is looking for a game!\n'
         if whitelist:
             sought = set()
@@ -70,6 +69,7 @@ class Monopoly(commands.Cog):
             desc += ': Join by saying "ok" or "yes" in chat.'
         else:
             desc += f'Join by saying "ok {seeker}" or "yes {seeker}" in chat.'
+        self.seeking[ctx.author.id] = ctx.message
         background(ctx.send(embed=discord.Embed(
             title='Looking For Game',
             description=desc,
@@ -102,10 +102,14 @@ class Monopoly(commands.Cog):
             @self.bot.listen()
             async def on_message(msg):
                 content = msg.content.strip().casefold()
-                if msg.author.id == ctx.author.id and content == 'nvm':
-                    fut.cancel()
-                    return
-                if not content.endswith(seeker):
+                if msg.author.id == ctx.author.id:
+                    if content == 'nvm':
+                        fut.cancel()
+                        return
+                    elif content in {'start', 'done'}:
+                        fut.set_result(True)
+                        return
+                if not content.endswith((seeker, seeker.replace('@', '@!'))):
                     return
                 if not content.startswith(('ok', 'yes')):
                     return
@@ -115,10 +119,10 @@ class Monopoly(commands.Cog):
         except (asyncio.CancelledError, asyncio.TimeoutError) as exc:
             if isinstance(exc, asyncio.TimeoutError):
                 desc = 'A minute passed before everyone had joined or declined.'
-            elif whitelist:
-                desc = 'You have quit seeking a game.'
-            else:
+            elif whitelist and not confirmed:
                 desc = 'Everyone you invited declined.'
+            else:
+                desc = 'You have quit seeking a game.'
             background(ctx.send(seeker, embed=discord.Embed(
                 title='Game Cancelled',
                 description=desc,
@@ -128,16 +132,18 @@ class Monopoly(commands.Cog):
         else:
             if whitelist:
                 players = {user for user in whitelist if user.id in confirmed}
+        finally:
+            self.bot.remove_listener(on_message)
+            for user in players:
+                self.seeking.pop(user.id, None)
+                self.sought.pop(user.id, None)
         players.add(ctx.author)
         await self.setup(ctx, players)
 
     async def setup(self, ctx, players):
         """Set up the game and close off the seek."""
-        for user in players:
-            self.seeking.discard(user.id)
-            self.sought.discard(user.id)
         hashstr = f"{' '.join(map(str, players))} {time.time()}"
-        prefix = sha256(hashstr).hexdigest()[:7]
+        prefix = sha256(hashstr.encode()).hexdigest()[:7]
         del hashstr
         overwrites = {
             self.guild.default_role: HIDE

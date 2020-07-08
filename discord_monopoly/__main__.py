@@ -86,11 +86,11 @@ async def on_command_error(ctx, exc):
 
 @client.before_invoke
 async def before_invoke(ctx):
-    print(f"{now()}: {ctx.user} ran {ctx.command}")
+    print(f"{now()}... {ctx.author} ran {ctx.command}")
 
 @client.event
 async def on_ready(*_, **__):
-    print(f"{now()}: Ready!")
+    print(f"{now()}... Ready!")
 
 @client.check
 def check_guild(ctx):
@@ -114,6 +114,7 @@ async def ping(ctx):
 @commands.is_owner()
 async def stop(ctx):
     await client.close()
+    wakeup.cancel()
 
 # keep-alive
 
@@ -122,19 +123,21 @@ def get_source_files(root, *parents, mtimes=None):
         mtimes = {}
     for name in os.listdir(os.path.join(*parents, root)):
         path = os.path.join(*parents, root, name)
-        if os.path.isdir(path):
-            return source_files(name, *parents, root, mtimes=mtimes)
+        if os.path.isdir(path) and not name.startswith('.'):
+            get_source_files(name, *parents, root, mtimes=mtimes)
         if not name.endswith(SOURCE_SUFFIXES):
             continue
         mtimes[path] = os.path.getmtime(path)
     return mtimes
-source_files = get_source_files(os.path.abspath('.'))
+source_files = get_source_files(os.path.dirname(SRCDIR))
 
 async def restart_if_modified():
     await client.wait_until_ready()
+    client.add_cog(Monopoly(client, GUILD_ID, ROLE_ID))
     while True:
         for path, mtime in source_files.items():
             if os.path.getmtime(path) > mtime:
+                print(path, 'modified')
                 if cmdargs.loop:
                     os.system(f'{COMMAND} restart')
                 sys.exit(0)
@@ -154,11 +157,10 @@ ROLE_ID = CONFIG['role'] # ID for "In Game" role
 
 # run
 
-client.add_cog(Monopoly(client, GUILD_ID, ROLE_ID))
-
 try:
     client.loop.create_task(client.start(TOKEN))
-    client.loop.run_until_complete(restart_if_modified())
+    wakeup = client.loop.create_task(restart_if_modified())
+    client.loop.run_until_complete(wakeup)
 except KeyboardInterrupt:
     pass
 finally:
